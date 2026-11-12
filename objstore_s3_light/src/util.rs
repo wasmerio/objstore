@@ -17,6 +17,20 @@ pub(crate) fn insert_signed_header<'a>(
     headers.insert(name.as_ref().to_ascii_lowercase(), value);
 }
 
+/// Insert the content headers of a put into the signed headers of an upload request.
+pub(crate) fn insert_put_content_headers<'a>(
+    headers: &mut rusty_s3::Map<'a>,
+    mime_type: Option<&'a str>,
+    content_encoding: Option<&'a str>,
+) {
+    if let Some(ct) = mime_type {
+        insert_signed_header(headers, http::header::CONTENT_TYPE.as_str(), ct);
+    }
+    if let Some(ce) = content_encoding {
+        insert_signed_header(headers, http::header::CONTENT_ENCODING.as_str(), ce);
+    }
+}
+
 /// See <https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html>
 pub fn parse_object_headers(key: String, headers: &HeaderMap) -> Result<ObjectMeta> {
     let last_modified = if let Some(v) = headers.get(http::header::LAST_MODIFIED) {
@@ -96,6 +110,17 @@ pub fn parse_object_headers(key: String, headers: &HeaderMap) -> Result<ObjectMe
             })?
             .to_string();
         meta.mime_type = Some(ct);
+    }
+    if let Some(v) = headers.get(http::header::CONTENT_ENCODING) {
+        let ce = v
+            .to_str()
+            .map_err(|source| ObjStoreError::InvalidMetadata {
+                key: key.clone(),
+                message: "invalid content-encoding header".to_string(),
+                source: Some(source.into()),
+            })?
+            .to_string();
+        meta.content_encoding = Some(ce);
     }
     // Extract MD5 hash from Content-MD5 header (base64-encoded)
     if let Some(v) = headers.get("Content-MD5") {

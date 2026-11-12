@@ -171,6 +171,8 @@ impl ObjStore for MemoryObjStore {
         meta.created_at = Some(now);
         meta.updated_at = Some(now);
         meta.hash_sha256 = Some(digest.into());
+        meta.mime_type = put.mime_type;
+        meta.content_encoding = put.content_encoding;
 
         self.state.data.write().await.insert(
             put.key,
@@ -280,5 +282,10 @@ mod tests {
     #[tokio::test]
     async fn test_kv_memory() {
         objstore_test::test_objstore(&MemoryObjStore::new()).await;
+    }
+
+    #[tokio::test]
+    async fn test_memory_content_encoding() {
+        objstore_test::test_put_with_content_encoding(&MemoryObjStore::new(), "encoding").await;
     }
 }

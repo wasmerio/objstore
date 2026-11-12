@@ -188,6 +188,12 @@ async fn test_prefix_store_matches_objstore_contract() {
 }
 
 #[tokio::test]
+async fn test_prefix_store_keeps_content_encoding() {
+    let store = PrefixObjStore::new("tests/prefix", MemoryObjStore::new());
+    objstore_test::test_put_with_content_encoding(&store, "encoding").await;
+}
+
+#[tokio::test]
 async fn test_prefix_store_normalizes_constructor_prefix() {
     let inner = MemoryObjStore::new();
     let store = PrefixObjStore::new("/tenant-a/", inner.clone());

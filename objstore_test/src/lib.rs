@@ -157,6 +157,82 @@ async fn test_put_with_mime_type(store: &impl ObjStore, prefix: &str) {
     store.delete(&key).await.unwrap();
 }
 
+/// Test that a put's content encoding is persisted and served back, without transcoding.
+///
+/// Stricter than the MIME type check in [`test_objstore`]: the store must persist the
+/// encoding. Not part of [`test_objstore`] because not every store keeps metadata.
+pub async fn test_put_with_content_encoding(store: &impl ObjStore, prefix: &str) {
+    let key = format!("{prefix}/content-encoding-{}", Uuid::new_v4());
+    let copy_key = format!("{prefix}/content-encoding-copy-{}", Uuid::new_v4());
+    // Not valid zstd: a store that tried to decode the bytes would fail or alter them.
+    let value = Bytes::from_static(b"already-encoded payload");
+
+    let assert_encoded = |meta: &ObjectMeta, context: &str| {
+        assert_eq!(
+            meta.content_encoding.as_deref(),
+            Some("zstd"),
+            "{context}: content encoding"
+        );
+    };
+
+    let sources = [
+        DataSource::Data(value.clone()),
+        DataSource::Stream(SizedValueStream::new(
+            futures::stream::iter([Ok(value.slice(..8)), Ok(value.slice(8..))]).boxed(),
+            value.len() as u64,
+        )),
+        DataSource::Stream(SizedValueStream::new_without_size(
+            futures::stream::iter([Ok(value.clone())]).boxed(),
+        )),
+    ];
+    for source in sources {
+        let mut put = Put::new(&key, source);
+        put.mime_type = Some("application/webc".to_string());
+        put.content_encoding = Some("zstd".to_string());
+        let put_meta = store.send_put(put).await.unwrap();
+        assert_encoded(&put_meta, "put response");
+
+        let meta = store
+            .meta(&key)
+            .await
+            .unwrap()
+            .expect("object should exist");
+        assert_encoded(&meta, "meta");
+
+        let (stream_meta, stream) = store
+            .get_stream_with_meta(&key)
+            .await
+            .unwrap()
+            .expect("object should exist");
+        assert_encoded(&stream_meta, "get_stream_with_meta");
+        let loaded = stream.try_collect::<BytesMut>().await.unwrap().freeze();
+        assert_eq!(loaded, value, "stored bytes must be returned unchanged");
+    }
+
+    store.copy(&key, &copy_key).send().await.unwrap();
+    let copy_meta = store
+        .meta(&copy_key)
+        .await
+        .unwrap()
+        .expect("copied object should exist");
+    assert_encoded(&copy_meta, "copy");
+
+    store.put(&key).bytes(value.clone()).await.unwrap();
+    let meta = store
+        .meta(&key)
+        .await
+        .unwrap()
+        .expect("object should exist");
+    assert_eq!(
+        meta.content_encoding, None,
+        "an overwrite without content encoding must clear it"
+    );
+
+    store.delete(&key).await.unwrap();
+    store.delete(&copy_key).await.unwrap();
+    assert!(store.list_all_keys(prefix).await.unwrap().is_empty());
+}
+
 async fn test_range_reads(store: &impl ObjStore, prefix: &str) {
     let key = format!("{prefix}/range-{}", Uuid::new_v4());
     let missing_key = format!("{prefix}/range-missing-{}", Uuid::new_v4());

@@ -165,6 +165,8 @@ pub struct ObjectMeta {
     pub hash_sha256: Option<[u8; 32]>,
     /// Optional MIME content type of the object.
     pub mime_type: Option<String>,
+    /// Optional content encoding of the stored bytes (e.g. "zstd").
+    pub content_encoding: Option<String>,
 
     pub extra: HashMap<String, serde_json::Value>,
 }
@@ -180,6 +182,7 @@ impl ObjectMeta {
             hash_md5: None,
             hash_sha256: None,
             mime_type: None,
+            content_encoding: None,
             extra: HashMap::new(),
         }
     }
@@ -501,6 +504,10 @@ pub struct Put {
     pub conditions: Conditions,
     /// Optional MIME type to associate with the object.
     pub mime_type: Option<String>,
+    /// Content encoding of the already-encoded bytes (e.g. `zstd`). Stores that keep object
+    /// metadata (memory, S3) store it and return it in [`ObjectMeta::content_encoding`]; the
+    /// filesystem store ignores it. The bytes are never transcoded.
+    pub content_encoding: Option<String>,
 }
 
 /// Request to copy an object from one key to another.
@@ -534,6 +541,7 @@ impl Put {
             data: data.into(),
             conditions: Conditions::default(),
             mime_type: None,
+            content_encoding: None,
         }
     }
 }

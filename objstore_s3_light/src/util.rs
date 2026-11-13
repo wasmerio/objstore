@@ -22,12 +22,16 @@ pub(crate) fn insert_put_content_headers<'a>(
     headers: &mut rusty_s3::Map<'a>,
     mime_type: Option<&'a str>,
     content_encoding: Option<&'a str>,
+    cache_control: Option<&'a str>,
 ) {
     if let Some(ct) = mime_type {
         insert_signed_header(headers, http::header::CONTENT_TYPE.as_str(), ct);
     }
     if let Some(ce) = content_encoding {
         insert_signed_header(headers, http::header::CONTENT_ENCODING.as_str(), ce);
+    }
+    if let Some(cc) = cache_control {
+        insert_signed_header(headers, http::header::CACHE_CONTROL.as_str(), cc);
     }
 }
 
@@ -121,6 +125,17 @@ pub fn parse_object_headers(key: String, headers: &HeaderMap) -> Result<ObjectMe
             })?
             .to_string();
         meta.content_encoding = Some(ce);
+    }
+    if let Some(v) = headers.get(http::header::CACHE_CONTROL) {
+        let cc = v
+            .to_str()
+            .map_err(|source| ObjStoreError::InvalidMetadata {
+                key: key.clone(),
+                message: "invalid cache-control header".to_string(),
+                source: Some(source.into()),
+            })?
+            .to_string();
+        meta.cache_control = Some(cc);
     }
     // Extract MD5 hash from Content-MD5 header (base64-encoded)
     if let Some(v) = headers.get("Content-MD5") {

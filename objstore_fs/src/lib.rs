@@ -517,17 +517,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fs_ignores_content_encoding() {
+    async fn test_fs_ignores_content_headers() {
         let dir = tempfile::tempdir().unwrap();
         let store = FsObjStore::new(FsObjStoreConfig::new(dir.path().to_owned())).unwrap();
         let mut put = Put::new("a", DataSource::Data(Bytes::from_static(b"encoded")));
         put.content_encoding = Some("zstd".to_string());
+        put.cache_control = Some("no-transform".to_string());
 
         let put_meta = store.send_put(put).await.unwrap();
         assert_eq!(put_meta.content_encoding, None);
+        assert_eq!(put_meta.cache_control, None);
         let meta = store.meta("a").await.unwrap().unwrap();
         assert_eq!(meta.content_encoding, None);
+        assert_eq!(meta.cache_control, None);
         let (_, stored) = store.get_with_meta("a").await.unwrap().unwrap();
         assert_eq!(stored.content_encoding, None);
+        assert_eq!(stored.cache_control, None);
     }
 }

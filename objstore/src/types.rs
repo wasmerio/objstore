@@ -167,6 +167,8 @@ pub struct ObjectMeta {
     pub mime_type: Option<String>,
     /// Optional content encoding of the stored bytes (e.g. "zstd").
     pub content_encoding: Option<String>,
+    /// Optional `Cache-Control` value stored with the object and returned on downloads.
+    pub cache_control: Option<String>,
 
     pub extra: HashMap<String, serde_json::Value>,
 }
@@ -183,6 +185,7 @@ impl ObjectMeta {
             hash_sha256: None,
             mime_type: None,
             content_encoding: None,
+            cache_control: None,
             extra: HashMap::new(),
         }
     }
@@ -508,6 +511,10 @@ pub struct Put {
     /// metadata (memory, S3) store it and return it in [`ObjectMeta::content_encoding`]; the
     /// filesystem store ignores it. The bytes are never transcoded.
     pub content_encoding: Option<String>,
+    /// `Cache-Control` value to store with the object and return on downloads. Stores that keep
+    /// object metadata (memory, S3) store it and return it in [`ObjectMeta::cache_control`]; the
+    /// filesystem store ignores it.
+    pub cache_control: Option<String>,
 }
 
 /// Request to copy an object from one key to another.
@@ -542,6 +549,7 @@ impl Put {
             conditions: Conditions::default(),
             mime_type: None,
             content_encoding: None,
+            cache_control: None,
         }
     }
 }

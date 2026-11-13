@@ -55,6 +55,7 @@ struct MultipartUploadState {
     conditions: Conditions,
     mime_type: Option<String>,
     content_encoding: Option<String>,
+    cache_control: Option<String>,
 }
 
 impl S3ObjStore {
@@ -646,6 +647,7 @@ impl S3ObjStore {
             action.headers_mut(),
             put.mime_type.as_deref(),
             put.content_encoding.as_deref(),
+            put.cache_control.as_deref(),
         );
         let headers = action.headers_mut().clone();
         let url = action.sign(Self::DURATION);
@@ -672,6 +674,7 @@ impl S3ObjStore {
         fallback.size = Some(size);
         fallback.mime_type = put.mime_type;
         fallback.content_encoding = put.content_encoding;
+        fallback.cache_control = put.cache_control;
         fallback.etag = Self::etag_from_headers(res.headers())?;
 
         self.metadata_after_write(
@@ -700,6 +703,7 @@ impl S3ObjStore {
             action.headers_mut(),
             put.mime_type.as_deref(),
             put.content_encoding.as_deref(),
+            put.cache_control.as_deref(),
         );
         action
             .headers_mut()
@@ -728,6 +732,7 @@ impl S3ObjStore {
         fallback.size = Some(size);
         fallback.mime_type = put.mime_type;
         fallback.content_encoding = put.content_encoding;
+        fallback.cache_control = put.cache_control;
         fallback.etag = Self::etag_from_headers(res.headers())?;
 
         self.metadata_after_write(
@@ -771,6 +776,7 @@ impl S3ObjStore {
             create.headers_mut(),
             put.mime_type.as_deref(),
             put.content_encoding.as_deref(),
+            put.cache_control.as_deref(),
         );
         let headers = create.headers_mut().clone();
         let url = create.sign(Self::DURATION);
@@ -802,6 +808,7 @@ impl S3ObjStore {
             conditions: put.conditions,
             mime_type: put.mime_type,
             content_encoding: put.content_encoding,
+            cache_control: put.cache_control,
         };
 
         let upload_result = self
@@ -835,6 +842,7 @@ impl S3ObjStore {
             conditions,
             mime_type,
             content_encoding,
+            cache_control,
         } = upload;
 
         // upload parts
@@ -982,6 +990,7 @@ impl S3ObjStore {
         fallback.size = Some(total_size);
         fallback.mime_type = mime_type;
         fallback.content_encoding = content_encoding;
+        fallback.cache_control = cache_control;
 
         self.metadata_after_write(
             &key,
@@ -1662,10 +1671,13 @@ mod tests {
         let sha_expected = Sha256::digest(b"");
         assert_eq!(meta.hash_sha256, Some(sha_expected.into()));
         assert_eq!(meta.content_encoding, None);
+        assert_eq!(meta.cache_control, None);
 
         map.insert("Content-Encoding", "zstd".parse().unwrap());
+        map.insert("Cache-Control", "public, no-transform".parse().unwrap());
         let meta = parse_object_headers("key".to_string(), &map).unwrap();
         assert_eq!(meta.content_encoding.as_deref(), Some("zstd"));
+        assert_eq!(meta.cache_control.as_deref(), Some("public, no-transform"));
     }
 
     #[test]
@@ -1706,7 +1718,7 @@ mod tests {
     }
 
     #[test]
-    fn test_put_content_encoding_is_signed_and_replayed() {
+    fn test_put_content_headers_are_signed_and_replayed() {
         let bucket = Bucket::new(
             "https://s3.example.com".parse().unwrap(),
             RustyUrlStyle::Path,
@@ -1721,6 +1733,7 @@ mod tests {
             bytes_put.headers_mut(),
             Some("application/webc"),
             Some("zstd"),
+            Some("public, no-transform"),
         );
         let bytes_headers = bytes_put.headers_mut().clone();
         let bytes_url = bytes_put.sign(S3ObjStore::DURATION);
@@ -1730,6 +1743,7 @@ mod tests {
             stream_put.headers_mut(),
             Some("application/webc"),
             Some("zstd"),
+            Some("public, no-transform"),
         );
         stream_put
             .headers_mut()
@@ -1738,7 +1752,12 @@ mod tests {
         let stream_url = stream_put.sign(S3ObjStore::DURATION);
 
         let mut create = bucket.create_multipart_upload(Some(&creds), "key");
-        insert_put_content_headers(create.headers_mut(), Some("application/webc"), Some("zstd"));
+        insert_put_content_headers(
+            create.headers_mut(),
+            Some("application/webc"),
+            Some("zstd"),
+            Some("public, no-transform"),
+        );
         let create_headers = create.headers_mut().clone();
         let create_url = create.sign(S3ObjStore::DURATION);
 
@@ -1747,19 +1766,19 @@ mod tests {
                 "bytes put",
                 bytes_url,
                 bytes_headers,
-                "content-encoding;content-type;host",
+                "cache-control;content-encoding;content-type;host",
             ),
             (
                 "single stream put",
                 stream_url,
                 stream_headers,
-                "content-encoding;content-length;content-type;host",
+                "cache-control;content-encoding;content-length;content-type;host",
             ),
             (
                 "multipart create",
                 create_url,
                 create_headers,
-                "content-encoding;content-type;host",
+                "cache-control;content-encoding;content-type;host",
             ),
         ] {
             let signed_headers = url
@@ -1780,6 +1799,11 @@ mod tests {
             assert_eq!(
                 request.headers().get("content-type").unwrap(),
                 "application/webc",
+                "{name}"
+            );
+            assert_eq!(
+                request.headers().get("cache-control").unwrap(),
+                "public, no-transform",
                 "{name}"
             );
         }
@@ -2048,7 +2072,7 @@ mod tests {
         // Test with prefix.
         objstore_test::test_objstore(&store).await;
         objstore_test::test_empty_stream_put(&store, "empty-stream").await;
-        objstore_test::test_put_with_content_encoding(&store, "content-encoding").await;
+        objstore_test::test_put_with_content_headers(&store, "content-encoding").await;
 
         // Test with without.
         let config = S3ObjStoreConfig {
@@ -2058,7 +2082,7 @@ mod tests {
         let store = S3ObjStore::new(config).expect("failed to create s3 kv store");
         objstore_test::test_objstore(&store).await;
         objstore_test::test_empty_stream_put(&store, "empty-stream").await;
-        objstore_test::test_put_with_content_encoding(&store, "content-encoding").await;
+        objstore_test::test_put_with_content_headers(&store, "content-encoding").await;
     }
 
     #[tokio::test]
